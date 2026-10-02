@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Horta Smart – Simulador</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f3f6f1;--card:#fff;--tx:#1d2a1f;--mu:#64756a;--ac:#2f8f4e;--bd:#dde5db;--bad:#d64545;--warn:#d9922b;--blue:#2f7fd0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121a14;--card:#1a251d;--tx:#e6efe7;--mu:#93a698;--bd:#2b3a2f}}
+:root[data-theme="dark"]{--bg:#121a14;--card:#1a251d;--tx:#e6efe7;--mu:#93a698;--bd:#2b3a2f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;padding:12px}
+h1{margin:0;font-size:20px}h2{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu)}
+.sub{color:var(--mu);margin-bottom:10px}
+.g{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:10px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;min-width:0}
+.v{font-size:22px;font-weight:600}.s{color:var(--mu);font-size:12px}
+canvas{max-width:100%;display:block}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px;align-items:center}
+button,select{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 9px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--ac)}button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.lab{font-size:12px;color:var(--mu);min-width:70px}
+.led{display:inline-block;width:12px;height:12px;border-radius:50%;background:#888;margin-right:4px}
+.al{color:var(--bad);font-weight:600}
+.ok{color:var(--ac)}
+table{border-collapse:collapse;font-size:11px;width:100%}td,th{padding:2px 4px;border-bottom:1px solid var(--bd);text-align:right}
+.sc{overflow-x:auto}
+textarea{width:100%;height:90px;font:11px monospace;background:var(--card);color:var(--tx);border:1px solid var(--bd)}
+.note{font-size:12px;color:var(--mu)}
+</style></head><body>
+<h1>HORTA SMART</h1><div class="sub">Sistema Autônomo de Gestão Hídrica — simulador do protótipo (ESP32)</div>
+<div class="c sc" style="margin-bottom:10px"><h2>Horta em 3D · arraste para girar, roda do mouse para zoom</h2><canvas id="c3d" style="touch-action:none;width:100%;border-radius:8px"></canvas><canvas id="scene" width="800" height="300" style="display:none"></canvas>
+<div class="note">Água, solo, evaporação, energia e chuva são <b>modelos matemáticos</b> (não física de fluidos real). A lógica de decisão é a que o ESP32 executaria, lendo apenas os sensores simulados.</div></div>
+<div class="g">
+<div class="c"><h2>Solo A / B</h2><div class="v" id="soil"></div><div class="s" id="soilS"></div></div>
+<div class="c"><h2>Reservatório</h2><div class="v" id="res"></div><div class="s" id="resS"></div></div>
+<div class="c"><h2>Bomba</h2><div class="v" id="pump"></div><div class="s" id="pumpS"></div></div>
+<div class="c"><h2>Fluxo</h2><div class="v" id="flow"></div><div class="s" id="flowS"></div></div>
+<div class="c"><h2>Consumo</h2><div class="v" id="use"></div><div class="s" id="useS"></div></div>
+<div class="c"><h2>Autonomia</h2><div class="v" id="aut"></div><div class="s" id="autS"></div></div>
+<div class="c"><h2>Bateria</h2><div class="v" id="bat"></div><div class="s" id="batS"></div></div>
+<div class="c"><h2>Energia solar</h2><div class="v" id="sol"></div><div class="s" id="solS"></div></div>
+<div class="c"><h2>Chuva</h2><div class="v" id="rain"></div><div class="s" id="rainS"></div></div>
+<div class="c"><h2>Modo</h2><div class="v" id="mode"></div><div class="s" id="clock"></div></div>
+</div>
+<div class="g" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+<div class="c"><h2>Display OLED (128×64)</h2><canvas id="oled" width="256" height="128" style="background:#000;border-radius:4px"></canvas>
+<div style="margin-top:6px"><span class="led" id="l1"></span>OK <span class="led" id="l2"></span>Economia <span class="led" id="l3"></span>Alerta <span class="led" id="l4"></span>Bomba</div>
+<h2 style="margin-top:8px">Alertas</h2><div id="alerts"></div></div>
+<div class="c"><h2>Controles (somente teste)</h2>
+<div class="row"><span class="lab">Solo A</span><button onclick="setSoil(0,15)">Seco</button><button onclick="setSoil(0,45)">Normal</button><button onclick="setSoil(0,75)">Úmido</button></div>
+<div class="row"><span class="lab">Solo B</span><button onclick="setSoil(1,15)">Seco</button><button onclick="setSoil(1,45)">Normal</button><button onclick="setSoil(1,75)">Úmido</button></div>
+<div class="row"><span class="lab">Reserv.</span><button onclick="addW(1)">+1 L</button><button onclick="addW(5)">+5 L</button><button onclick="addW(-1)">-1 L</button><button onclick="S.water=0">Esvaziar</button><button onclick="S.water=S.cap">Encher</button></div>
+<div class="row"><span class="lab">Chuva</span><select id="rl" onchange="if(S.rainLvl)S.rainLvl=+this.value"><option value="1">Fraca</option><option value="2" selected>Moderada</option><option value="3">Forte</option></select><button onclick="S.rainLvl=+$('rl').value">Iniciar chuva</button><button onclick="S.rainLvl=0">Parar chuva</button></div>
+<div class="row"><span class="lab">Previsão</span><select id="fc" onchange="S.fc=+this.value"><option value="0">Sem chuva</option><option value="1">Chuva fraca</option><option value="2">Chuva moderada</option><option value="3">Chuva forte</option></select></div>
+<div class="row"><span class="lab">Sol</span><span id="sunb"></span></div>
+<div class="row"><span class="lab">Bateria</span><button onclick="S.bat=10">10%</button><button onclick="S.bat=50">50%</button><button onclick="S.bat=100">100%</button></div>
+<div class="row"><span class="lab">Bomba</span><button onclick="S.pm='auto'">Automático</button><button onclick="S.pm='on'">Ligar</button><button onclick="S.pm='off'">Desligar</button></div>
+<div class="row"><span class="lab">Falhas</span><button onclick="tf('soilA')">Sensor solo A</button><button onclick="tf('level')">Sensor nível</button><button onclick="tf('clog')">Obstruir mangueira</button><button onclick="S.latched=false">Reset alarme</button></div>
+<div class="row"><span class="lab">Velocidade</span><select id="sp" onchange="S.speed=+this.value"><option value="2">2 min/s</option><option value="10" selected>10 min/s</option><option value="30">30 min/s</option><option value="60">60 min/s</option></select><button onclick="S.paused=!S.paused">Pausar/Retomar</button></div>
+</div></div>
+<div class="c" style="margin-bottom:10px"><h2>Testes automáticos</h2><div class="row"><button onclick="runTests()">Executar testes 1–9</button></div><div id="tests" class="note"></div></div>
+<div class="g" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr))" id="charts"></div>
+<div class="c"><h2>Registro de dados</h2><div class="row"><button onclick="csv()">Exportar CSV</button></div><textarea id="csvt" style="display:none" readonly></textarea>
+<div class="sc"><table id="log"></table></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const RQ=[0,.5,2,6],RG=[0,.15,.5,1.2],FN=['SEM CHUVA','CHUVA FRACA','CHUVA MODERADA','CHUVA FORTE'];
+const S={t:360,tt:0,soil:[40,45],water:14.5,cap:20,pump:false,pm:'auto',flow:0,drip:0,today:0,tot:0,bat:78,sun:75,rainLvl:0,fc:0,
+f:{soilA:false,level:false,clog:false},alerts:[],latched:false,mode:'NORMAL',rec:0,prank:0,cyc:0,cycles:[],since:0,gen:0,load:0,speed:10,paused:false,lastLog:-99};
+const H={}, ser={};let tick=0,logs=[],oledN=0;
+function setSoil(i,v){S.soil[i]=v}function addW(x){S.water=Math.max(0,Math.min(S.cap,S.water+x))}
+function tf(k){S.f[k]=!S.f[k]}
+// botões de sol
+$('sunb').innerHTML=[0,25,50,75,100].map(v=>`<button onclick="S.sun=${v}">${v}%</button>`).join('');
+// ---- física (modelo matemático) ----
+function physics(dt){
+ const rq=RQ[S.rainLvl];S.water=Math.min(S.cap,S.water+rq*dt);
+ const ok=S.pump&&S.water>0&&!S.f.clog&&S.bat>1;
+ const fr=ok?1.2:0;S.flow=fr;                 // sensor de fluxo (pulsos)
+ S.drip+=(fr-S.drip)*Math.min(1,dt*1.5);      // atraso da mangueira
+ const used=Math.min(S.water,fr*dt);S.water-=used;S.today+=used;S.tot+=used;S.cyc+=used;
+ const ev=S.rainLvl?0:.12+.15*S.sun/100;
+ for(let i=0;i<2;i++)S.soil[i]=Math.max(0,Math.min(100,S.soil[i]+S.drip/2*25*dt+RG[S.rainLvl]*dt-ev*dt));
+ S.gen=20*S.sun/100;S.load=1.3+(ok?18:0);
+ S.bat=Math.max(0,Math.min(100,S.bat+((S.gen*.9-S.load)*dt/60)/84*100));
+ S.t+=dt;S.tt+=dt;if(S.t>=1440){S.t-=1440;S.today=0}
+}
+// ---- lógica do ESP32 (lê só sensores) ----
+function readSoil(){return [S.f.soilA?null:S.soil[0],S.soil[1]]}
+function readWaterLevel(){return S.f.level?null:S.water}
+function readFlow(){return S.flow}
+function controlPump(){
+ const sa=readSoil(),lv=readWaterLevel(),al=[];
+ const val=sa.filter(x=>x!==null),avg=val.length?val.reduce((a,b)=>a+b)/val.length:null;
+ if(sa[0]===null)al.push('Sensor de umidade A desconectado');
+ if(lv===null)al.push('Sensor de nível com problema: MODO SEGURO');
+ let rank=0,m='NORMAL';
+ if(lv===null)m='MODO SEGURO';else{const p=lv/S.cap*100;rank=lv<=.05?3:p<20?2:p<40?1:0;m=['NORMAL','ECONOMIA','CRÍTICO','VAZIO'][rank];
+  if(S.prank>=1&&rank<S.prank)S.rec=S.t+45;} 
+ S.prank=rank;if(m==='NORMAL'&&S.t<S.rec)m='RECUPERAÇÃO';
+ if(S.bat<30&&m==='NORMAL')m='ECONOMIA';
+ let st=35,sp=60;
+ if(m==='CRÍTICO'){st=20;sp=40}else if(m==='ECONOMIA'){sp=50}else if(m==='RECUPERAÇÃO'){st=30;sp=55}
+ if(S.bat<30)sp=Math.min(sp,45);
+ if(S.fc>=2)st=Math.min(st,20);else if(S.fc===1)st-=5;
+ if(m==='VAZIO')al.push('Reservatório vazio: bomba bloqueada');
+ if(rank===2)al.push('Nível CRÍTICO');
+ if(S.bat<15)al.push('BATERIA CRÍTICA: irrigação interrompida');else if(S.bat<30)al.push('Bateria baixa: consumo reduzido');
+ const block=lv===null||rank===3||avg===null||S.bat<15||S.rainLvl>0||S.latched;
+ let want=S.pump;
+ if(block)want=false;else if(!want&&avg<st)want=true;else if(want&&avg>sp)want=false;
+ if(S.pm==='on')want=true;if(S.pm==='off')want=false;
+ if(S.latched)want=false;
+ if(want&&!S.pump)S.since=Date.now();
+ if(!want&&S.pump&&S.cyc>.2){S.cycles.push(S.cyc);if(S.cycles.length>10)S.cycles.shift()}
+ if(!want)S.cyc=want?S.cyc:0;
+ S.pump=want;S.mode=m;S.avg=avg;
+ if(S.pump&&readFlow()<.05&&Date.now()-S.since>3000&&!S.latched){S.latched=true;S.pump=false}
+ if(S.latched)al.push('ALERTA: Bomba ligada, Fluxo = 0. Possível falha hidráulica (bomba, mangueira ou obstrução)');
+ S.alerts=al;
+}
+function calculateAutonomy(){const a=S.cycles.length?S.cycles.reduce((x,y)=>x+y)/S.cycles.length:3;
+ const n=Math.floor(S.water/a);let d=null;if(S.tt>=720&&S.tot>0)d=S.water/(S.tot/(S.tt/1440));return{a,n,d}}
+// ---- gráficos ----
+const CH=[['Umidade do solo (%)',['soilA','soilB'],0,100],['Reservatório (L)',['water'],0,20],['Consumo hoje (L)',['today'],0,10],['Bateria (%)',['batt'],0,100],['Solar (W)',['gen'],0,20],['Fluxo (L/min)',['flow'],0,1.5]];
+const COL=['#2f8f4e','#2f7fd0'];
+CH.forEach((c,i)=>{$('charts').insertAdjacentHTML('beforeend',`<div class="c"><h2>${c[0]}</h2><canvas id="ch${i}" width="300" height="110"></canvas></div>`);c[1].forEach(k=>ser[k]=[])});
+function drawCharts(){CH.forEach((c,i)=>{const cv=$('ch'+i),x=cv.getContext('2d'),w=300,h=110;x.clearRect(0,0,w,h);x.strokeStyle='#8884';x.strokeRect(0,0,w,h);
+ x.fillStyle='#889';x.font='9px sans-serif';x.fillText(c[3],2,10);x.fillText(c[2],2,h-3);
+ c[1].forEach((k,j)=>{x.strokeStyle=COL[j];x.beginPath();ser[k].forEach((v,n)=>{const px=n/299*w,py=h-(v-c[2])/(c[3]-c[2])*(h-4)-2;n?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()})})}
+// ---- registro ----
+const hm=t=>String(Math.floor(t/60)%24).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');
+function logRow(){const r=[hm(S.t),S.soil[0].toFixed(1),S.soil[1].toFixed(1),(S.water/S.cap*100).toFixed(1),S.water.toFixed(2),S.flow.toFixed(2),S.today.toFixed(2),S.pump?1:0,S.bat.toFixed(1),S.gen.toFixed(1),S.rainLvl,S.mode];logs.push(r);if(logs.length>2000)logs.shift()}
+const HD=['hora','soloA_%','soloB_%','nivel_%','litros','fluxo_Lmin','consumo_dia_L','bomba','bateria_%','solar_W','chuva','modo'];
+function csv(){const t=[HD.join(',')].concat(logs.map(r=>r.join(','))).join('\n');const a=$('csvt');a.style.display='block';a.value=t;a.select();
+ try{const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));l.download='horta_smart.csv';l.click()}catch(e){}}
+// ---- render ----
+function render(){const A=calculateAutonomy(),pc=S.water/S.cap*100;
+ $('soil').textContent=`${S.soil[0].toFixed(0)}% / ${S.soil[1].toFixed(0)}%`;$('soilS').textContent=S.f.soilA?'Sensor A: ERRO':'Liga <35% · desliga >60%';
+ $('res').textContent=`${S.water.toFixed(1)} / ${S.cap} L`;$('resS').textContent=pc.toFixed(0)+'% · '+(S.f.level?'sensor com erro':S.mode==='VAZIO'?'VAZIO':pc<20?'CRÍTICO':pc<40?'ECONOMIA':'NORMAL');
+ $('pump').textContent=S.pump?'LIGADA':'DESLIGADA';$('pumpS').textContent='Comando: '+(S.pm==='auto'?'automático':'manual '+S.pm)+(S.latched?' · BLOQUEADA':'');
+ $('flow').textContent=S.flow.toFixed(1)+' L/min';$('flowS').textContent='Ciclo atual: '+S.cyc.toFixed(2)+' L';
+ $('use').textContent='Hoje: '+S.today.toFixed(2)+' L';$('useS').textContent='Total: '+S.tot.toFixed(2)+' L';
+ $('aut').textContent=A.n+' irrigações';$('autS').textContent=(A.d===null?'Dias: coletando dados':'≈ '+A.d.toFixed(1)+' dias')+' · média '+A.a.toFixed(1)+' L';
+ $('bat').textContent=S.bat.toFixed(0)+'%';$('batS').textContent=S.bat<15?'BATERIA CRÍTICA':S.bat<30?'BAIXA':'ENERGIA SUFICIENTE';
+ $('sol').textContent=S.gen.toFixed(1)+' W';$('solS').textContent='Consumo '+S.load.toFixed(1)+' W (ESP32+sensores 1,3 W'+(S.load>5?' + bomba 18 W':'')+')';
+ $('rain').textContent=S.rainLvl?'CHOVENDO ('+['','fraca','moderada','forte'][S.rainLvl]+')':'Sem chuva';$('rainS').textContent='Previsão: '+FN[S.fc]+(S.rainLvl?' · +'+RQ[S.rainLvl]+' L/min':'');
+ $('mode').textContent=S.mode;$('clock').textContent='Hora simulada '+hm(S.t);
+ $('alerts').innerHTML=S.alerts.length?S.alerts.map(a=>`<div class="al">⚠ ${a}</div>`).join(''):'<div class="ok">Sem alertas</div>';
+ const lc=(i,on,c)=>$('l'+i).style.background=on?c:'#888';lc(1,!S.alerts.length&&S.mode!=='ECONOMIA','#2fc65e');lc(2,S.mode==='ECONOMIA'||S.mode==='RECUPERAÇÃO','#e5b52b');lc(3,S.alerts.length>0,'#e04b4b');lc(4,S.pump,'#2f7fd0');
+ oled();GL||scene();drawCharts();
+ const tb=['<tr>'+HD.map(h=>'<th>'+h+'</th>').join('')+'</tr>'].concat(logs.slice(-8).reverse().map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>'));$('log').innerHTML=tb.join('')}
+function oled(){const x=$('oled').getContext('2d');x.fillStyle='#000';x.fillRect(0,0,256,128);x.fillStyle='#6fe3ff';x.font='bold 16px monospace';
+ const s=Math.floor(oledN/30)%3,L=[];
+ if(s===0)L.push('HORTA SMART',`Solo A: ${S.f.soilA?'ERR':S.soil[0].toFixed(0)+'%'}  B: ${S.soil[1].toFixed(0)}%`,`Agua: ${S.water.toFixed(1)} L`,`Bomba:${S.pump?'ON ':'OFF'} ${S.flow.toFixed(1)}L/m`);
+ else if(s===1)L.push('RESERVATORIO',`Nivel: ${(S.water/S.cap*100).toFixed(0)}%`,`Hoje: ${S.today.toFixed(2)} L`,`Autonomia: ${calculateAutonomy().n}`);
+ else L.push('ENERGIA',`Bateria: ${S.bat.toFixed(0)}%`,`Solar: ${S.gen.toFixed(1)} W`,`Modo: ${S.mode.slice(0,9)}`);
+ L.forEach((t,i)=>x.fillText(t,6,22+i*30))}
+// ---- cena ----
+let drops=[];
+function scene(){const c=$('scene'),x=c.getContext('2d'),dk=matchMedia('(prefers-color-scheme:dark)').matches;
+ x.fillStyle=dk?'#16222f':'#dff0fb';x.fillRect(0,0,800,300);x.fillStyle=dk?'#2a2216':'#b38b5a';x.fillRect(0,262,800,38);
+ const R=(a,b,w,h,f,s)=>{x.fillStyle=f;x.fillRect(a,b,w,h);if(s){x.strokeStyle=s;x.strokeRect(a,b,w,h)}},T=(t,a,b,col)=>{x.fillStyle=col||'#223';x.font='10px sans-serif';x.fillText(t,a,b)};
+ const wire=(pts,col,dash)=>{x.strokeStyle=col;x.setLineDash(dash||[]);x.lineWidth=2;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(...p):x.moveTo(...p));x.stroke();x.setLineDash([]);x.lineWidth=1};
+ // sol e painel
+ x.fillStyle=`rgba(255,200,40,${.2+S.sun/130})`;x.beginPath();x.arc(770,28,14,0,7);x.fill();
+ x.save();x.translate(600,20);x.transform(1,0,-.4,1,0,0);R(0,0,110,34,'#1f4f8a','#9cf');x.restore();T('Painel solar '+S.gen.toFixed(0)+' W',590,66);
+ // eletrônica
+ R(300,14,60,34,'#ddd','#333');T('ESP32',312,34);R(300,56,60,22,'#e8c070','#333');T('MOSFET',311,71);
+ R(390,14,64,22,'#ccc','#333');T('Ctrl carga',398,29);R(390,44,64,26,S.bat<15?'#e66':'#7c7','#333');T('Bat '+S.bat.toFixed(0)+'%',398,61);
+ R(470,50,30,18,'#eee','#333');T('Fusível',468,80);R(210,14,70,34,'#111','#4cf');T('OLED',230,34,'#4cf');
+ wire([[600,50],[600,56],[422,56],[422,36]],'#c33');wire([[422,44],[422,44]],'#c33');wire([[454,57],[470,57]],'#c33');wire([[500,59],[520,59],[520,92],[330,92],[330,78]],'#c33',[4,3]);
+ wire([[330,48],[330,56]],'#2a2');wire([[300,30],[280,30]],'#2a2');
+ // captação e filtro
+ x.fillStyle='#8a8a8a';x.beginPath();x.moveTo(10,110);x.lineTo(120,80);x.lineTo(120,92);x.lineTo(10,122);x.fill();T('Calha',30,105);
+ wire([[112,92],[112,130],[150,130],[150,150]],'#5a8cb8');R(135,150,30,22,'#9a8','#333');T('Filtro',138,164);
+ // reservatório
+ R(120,185,100,77,dk?'#223':'#eef','#345');const wh=S.water/S.cap*77;R(121,262-wh,98,wh,'#3a8fe0cc');T(S.water.toFixed(1)+' L',150,222,'#fff');T('Reservatório 20 L',120,180);
+ wire([[150,172],[150,185]],'#5a8cb8');R(160,195,6,12,'#c55');T('HC-SR04',170,200);
+ // bomba, fluxo, mangueira
+ R(240,235,30,22,S.pump?'#2f7fd0':'#889','#333');T('Bomba',241,249,'#fff');R(290,238,26,16,'#cb6','#333');T('Fluxo',291,250);
+ wire([[220,246],[240,246]],'#3a8fe0');wire([[270,246],[290,246]],'#3a8fe0');wire([[316,246],[330,246],[330,210],[780,210]],S.flow>0?'#3a8fe0':'#889');T('Mangueira / gotejadores',500,203);
+ // canteiros
+ [[390,0],[610,1]].forEach(([ax,i])=>{const m=S.soil[i]/100;x.fillStyle=`rgb(${Math.round(150-90*m)},${Math.round(105-45*m)},${Math.round(60-5*m)})`;x.fillRect(ax,222,190,40);x.strokeStyle='#432';x.strokeRect(ax,222,190,40);
+  for(let k=0;k<6;k++){const px=ax+20+k*30;x.fillStyle='#3a9a45';x.beginPath();x.arc(px,214-(6+m*8),8+m*5,0,7);x.fill()}
+  R(ax+95,230,4,26,'#ee3');T('Solo '+'AB'[i]+': '+S.soil[i].toFixed(0)+'%',ax+60,276);
+  if(S.drip>.1)for(let k=0;k<6;k++){const px=ax+20+k*30,py=212+((oledN*3+k*7)%40);x.fillStyle='#3a8fe0';x.fillRect(px,py,2,4)}});
+ // chuva
+ if(S.rainLvl){for(let k=0;k<S.rainLvl*25;k++)drops.push([Math.random()*800,0]);drops=drops.filter(d=>(d[1]+=12)<260);x.strokeStyle='#5b8fc0';drops.forEach(d=>{x.beginPath();x.moveTo(d[0],d[1]);x.lineTo(d[0],d[1]+6);x.stroke()});T('Sensor de chuva: DETECTADO',10,20)}else drops=[],T('Sensor de chuva: seco',10,20);
+ T(S.pump?'Fluxo '+S.flow.toFixed(1)+' L/min':'',345,235)}
+// ---- laço ----
+function loop(){if(S.paused)return;const dt=S.speed*.1,n=Math.max(1,Math.ceil(dt/.25));
+ for(let i=0;i<n;i++){physics(dt/n);controlPump()}
+ tick++;oledN++;
+ if(tick%3===0){const p=(k,v)=>{ser[k].push(v);if(ser[k].length>300)ser[k].shift()};p('soilA',S.soil[0]);p('soilB',S.soil[1]);p('water',S.water);p('today',S.today);p('batt',S.bat);p('gen',S.gen);p('flow',S.flow)}
+ if(S.tt-S.lastLog>=5){S.lastLog=S.tt;logRow()}
+ render()}
+setInterval(loop,100);
+// ---- testes ----
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(f,ms){const t=Date.now();while(Date.now()-t<ms){if(f())return true;await sleep(60)}return false}
+async function runTests(){const out=$('tests'),res=[];const sp=S.speed;S.speed=20;S.paused=false;S.pm='auto';
+ const T=(n,ok)=>{res.push(`${ok?'✅':'❌'} Teste ${n}`);out.innerHTML=res.join('<br>')};
+ const base=()=>{S.f={soilA:false,level:false,clog:false};S.latched=false;S.rainLvl=0;S.fc=0;S.sun=100;S.bat=90;S.pm='auto'};
+ base();S.water=15;S.soil=[70,70];await sleep(1500);T('1 – solo úmido, bomba desligada: '+(S.pump?'bomba ligou':'ok'),!S.pump);
+ S.soil=[20,20];T('2 – solo seco, bomba liga',await until(()=>S.pump,4000));
+ const w0=S.water;T('3 – água usada, reservatório diminui',await until(()=>S.water<w0-.1,4000));
+ T('4 – solo úmido, bomba desliga',await until(()=>!S.pump&&S.avg>=60,20000));
+ S.soil=[70,70];S.water=7;await sleep(400);const e1=S.mode==='ECONOMIA';S.water=3;await sleep(400);T('5 – nível crítico → economia/crítico',e1&&S.mode==='CRÍTICO');
+ S.water=0;S.soil=[10,10];await sleep(1500);T('6 – reservatório vazio, bomba bloqueada',!S.pump&&S.mode==='VAZIO');
+ S.water=2;S.rainLvl=2;T('7 – chuva, reservatório aumenta',await until(()=>S.water>2.5,3000));
+ S.rainLvl=0;S.water=15;S.soil=[20,20];S.bat=10;await sleep(1500);T('8 – bateria baixa, irrigação suspensa',!S.pump&&S.alerts.some(a=>a.includes('BATERIA')));
+ S.bat=90;S.f.clog=true;S.soil=[20,20];await until(()=>S.pump,3000);T('9 – bomba ligada + fluxo zero, falha detectada',await until(()=>S.latched&&!S.pump,7000));
+ base();S.speed=sp;out.innerHTML=res.join('<br>')+'<br>Concluído. Estado restaurado.'}
+// ---- cena 3D (three.js) ----
+let GL=false;
+try{(function(){
+const cv=$('c3d'),R=new THREE.WebGLRenderer({canvas:cv,antialias:true}),sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,100);
+const M=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.8},o||{}));
+const add=(g,m,x,y,z,p)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);(p||sc).add(o);return o};
+const box=(w,h,d,m,x,y,z,p)=>add(new THREE.BoxGeometry(w,h,d),m,x,y,z,p);
+const cyl=(r,h,m,x,y,z,rz,p)=>{const o=add(new THREE.CylinderGeometry(r,r,h,16),m,x,y,z,p);if(rz)o.rotation.z=Math.PI/2;return o};
+const ln=(pts,c)=>sc.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(p=>new THREE.Vector3(...p))),new THREE.LineBasicMaterial({color:c})));
+const amb=new THREE.AmbientLight(0xffffff,.6),sun=new THREE.DirectionalLight(0xffffff,.9);sun.position.set(8,12,6);sc.add(amb,sun);
+function lab(t,x,y,z){const c=document.createElement('canvas');c.width=256;c.height=64;const tx=new THREE.CanvasTexture(c),sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,depthTest:false}));sp.position.set(x,y,z);sp.scale.set(2.6,.65,1);sp.renderOrder=9;sc.add(sp);
+ const o={last:'',set(s){if(s===o.last)return;o.last=s;const g=c.getContext('2d');g.clearRect(0,0,256,64);g.fillStyle='#000b';g.fillRect(0,10,256,44);g.fillStyle='#fff';g.font='bold 21px sans-serif';g.textAlign='center';g.fillText(s,128,40);tx.needsUpdate=true}};o.set(t);return o}
+const gm=M(0x4e9a47);box(40,.2,24,gm,2,-.1,0);
+const wood=M(0x8a6a3f),metal=M(0x9aa5ad,{metalness:.4}),pm=M(0x707880);
+// captação, filtro, reservatório
+box(3.4,.1,2.2,M(0xb5503c),-4.6,3.2,0).rotation.z=-.12;
+[[-6,1],[-6,-1],[-3.3,1],[-3.3,-1]].forEach(([x,z])=>cyl(.06,3.1,wood,x,1.55,z));
+box(.15,.15,2.2,metal,-2.95,2.95,0);cyl(.05,.5,pm,-3,2.72,0);cyl(.25,.5,M(0x6a7a52),-3,2.25,0);
+lab('Calha / telhado',-5.2,4.1,0);lab('Filtro',-1.5,2.5,0);
+cyl(.8,2,M(0xcfe6f5,{transparent:true,opacity:.35}),-3,1,0);
+const wat=cyl(.76,1.8,M(0x2f86e0,{transparent:true,opacity:.85}),-3,1,0);
+cyl(.82,.06,M(0x445),-3,2.03,0);box(.3,.12,.2,M(0x2a5db0),-3.4,2.12,.3);
+const lTank=lab('',-3,.9,1.7);
+// bomba, fluxo, mangueira
+cyl(.06,2.2,pm,-1.1,.3,0,1);cyl(.06,.9,pm,0,.75,0);cyl(.05,8.4,pm,4,1.2,0,1);
+const pump=box(.6,.45,.45,M(0x2d6cdf),-1.4,.3,0);box(.35,.3,.3,M(0xd9b24a),-.6,.3,0);
+const lPump=lab('',-1.4,1.1,.9),lFlow=lab('',-.2,.35,.9);
+// eletrônica
+box(1.4,1,.5,M(0xdddddd),-1.2,1,-2.6);cyl(.05,.5,metal,-1.7,.25,-2.6);cyl(.05,.5,metal,-.7,.25,-2.6);
+box(.5,.3,.03,M(0x1a6b3c),-1.5,1.05,-2.33);box(.2,.12,.03,M(0xc33),-1.5,.8,-2.33);
+const ot=new THREE.CanvasTexture($('oled'));add(new THREE.PlaneGeometry(.6,.3),new THREE.MeshBasicMaterial({map:ot}),-.9,1.05,-2.33);
+const leds=[0,1,2,3].map(i=>add(new THREE.SphereGeometry(.04,8,6),new THREE.MeshBasicMaterial({color:0x333}),-1.65+i*.15,1.38,-2.33));
+box(.7,.4,.4,M(0x222),.5,.2,-2.6);box(.15,.1,.1,M(0xe8c040),-.2,.5,-2.6);
+cyl(.06,1.4,metal,3,.7,-3);box(2.6,.06,1.5,M(0x1f4f9a,{metalness:.5,roughness:.3}),3,1.5,-3).rotation.x=.5;
+ln([[3,1.3,-3],[.5,.4,-2.6],[-1.2,.5,-2.6]],0xcc3333);ln([[-1.2,.5,-2.6],[-1.4,.3,-.2]],0x33aa33);
+lab('ESP32 + OLED + MOSFET',-1.2,2.1,-2.6);const lSol=lab('',3,2.8,-3),lBat=lab('',.5,1,-2.6);
+// canteiros
+const beds=[2.5,6.5].map((cx,i)=>{box(3.2,.5,1.7,wood,cx,.25,0);const soil=box(3,.05,1.5,M(0x5a3d22),cx,.52,0),lm=M(0x3fa84a),pl=[];
+ for(let r=0;r<2;r++)for(let k=0;k<5;k++){const g=new THREE.Group();g.position.set(cx-1.2+k*.6,.53,r?.4:-.4);cyl(.025,.3,M(0x3b7a2e),0,.15,0,0,g);add(new THREE.SphereGeometry(.18,10,8),lm,0,.35,0,g).scale.y=.7;sc.add(g);pl.push(g)}
+ const sens=box(.06,.5,.03,M(0xffd83a),cx+1.2,.4,.55);box(.12,.1,.08,M(0x333),cx+1.2,.68,.55);
+ return{soil,lm,pl,sens,l:lab('',cx,1.9,1.1)}});
+const em=[];[2.5,6.5].forEach(cx=>{for(let k=0;k<5;k++){const x=cx-1.2+k*.6;cyl(.015,.4,M(0x111),x,1,0);em.push(x)}});
+const dp=new Float32Array(em.length*9),dg=new THREE.BufferGeometry();dg.setAttribute('position',new THREE.BufferAttribute(dp,3));
+const drops=new THREE.Points(dg,new THREE.PointsMaterial({color:0x4aa8ff,size:.08}));drops.frustumCulled=false;sc.add(drops);
+// chuva
+const NR=1500,rp=new Float32Array(NR*6),rv=new Float32Array(NR);
+for(let i=0;i<NR;i++){rv[i]=.8+Math.random()*.4;const x=-9+Math.random()*20,z=-6+Math.random()*12,y=Math.random()*9;rp.set([x,y,z,x,y+.5,z],i*6)}
+const rg=new THREE.BufferGeometry();rg.setAttribute('position',new THREE.BufferAttribute(rp,3));
+const rain=new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0xaed4ff,transparent:true,opacity:.6}));rain.frustumCulled=false;sc.add(rain);
+const cl=new THREE.Group(),cm=M(0xffffff,{transparent:true,opacity:0,roughness:1});
+[[-5,8,-1,2],[0,8.6,1,2.6],[5,8,-2,2.2],[9,8.4,2,1.8],[-1,8,-4,2.2]].forEach(([x,y,z,r])=>add(new THREE.SphereGeometry(r,12,10),cm,x,y,z,cl).scale.y=.45);sc.add(cl);
+const so=add(new THREE.SphereGeometry(.7,16,12),new THREE.MeshBasicMaterial({color:0xffd23a,transparent:true}),12,10,-8);
+// câmera orbital
+let th=.55,ph=1.1,rad=18,drag=null;const tg=new THREE.Vector3(1.5,1.2,0);
+cv.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!drag)return;th-=(e.clientX-drag[0])*.008;ph=Math.max(.3,Math.min(1.5,ph-(e.clientY-drag[1])*.006));drag=[e.clientX,e.clientY]});
+cv.addEventListener('pointerup',()=>drag=null);
+cv.addEventListener('wheel',e=>{e.preventDefault();rad=Math.max(6,Math.min(34,rad*(1+e.deltaY*.001)))},{passive:false});
+const rs=()=>{const w=cv.parentElement.clientWidth-20,h=Math.max(260,Math.min(520,w*.6));R.setSize(w,h,true);cam.aspect=w/h;cam.updateProjectionMatrix()};rs();addEventListener('resize',rs);
+const gc=new THREE.Color(),c1=new THREE.Color(0x1b2a44),c2=new THREE.Color(0x9fd4f5),c3=new THREE.Color(0x56626e);sc.background=gc;
+let T0=performance.now(),rz=0,wet=0;
+function an(){requestAnimationFrame(an);const now=performance.now(),dt=Math.min(.05,(now-T0)/1000);T0=now;const t=now/1000;
+ rz+=(S.rainLvl-rz)*Math.min(1,dt*1.2);if(rz<.01&&!S.rainLvl)rz=0;wet=Math.max(0,Math.min(1,wet+rz*dt*.04-dt*.004));
+ const sf=S.sun/100,rw=rz/3;
+ gc.copy(c1).lerp(c2,sf).lerp(c3,Math.min(.85,rw*1.2));
+ amb.intensity=.25+.55*sf*(1-rw*.4);sun.intensity=.15+.9*sf*(1-rw*.7);so.material.opacity=sf*(1-rw);so.visible=sf>.02&&rw<.9;
+ gm.color.setHex(0x4e9a47).multiplyScalar(1-wet*.35);
+ cm.opacity=Math.max(rz>.02?Math.min(1,.45+rz*.2):0,S.fc*.12);cm.color.setHex(0xffffff).lerp(c3,Math.min(1,rw*1.1));cl.visible=cm.opacity>.01;cl.position.x=Math.sin(t*.05)*1.5;
+ const n=rz>.02?Math.min(NR,Math.floor(150+rz*450)):0,fall=(8+rz*6)*dt,len=.3+rz*.25;
+ for(let i=0;i<n;i++){let y=rp[i*6+1]-fall*rv[i];if(y<0)y+=9;rp[i*6+1]=y;rp[i*6+4]=y+len}
+ rg.setDrawRange(0,n*2);rg.attributes.position.needsUpdate=true;rain.material.opacity=.3+rw*.5;
+ const f=S.water/S.cap;wat.visible=f>.005;wat.scale.y=Math.max(.001,f);wat.position.y=.1+.9*f;
+ pm.color.setHex(S.flow>0?0x3a8fe0:0x707880);pm.emissive.setHex(S.flow>0?0x124a8a:0);
+ pump.material.color.setHex(S.pump?0x2fbf5a:0x2d6cdf);pump.position.y=S.pump?.3+Math.sin(t*60)*.004:.3;
+ beds.forEach((b,i)=>{const m=S.soil[i]/100;b.soil.material.color.setHSL(.07,.45,.32-.2*m);b.lm.color.setHSL(.06+.27*m,.6,.36);b.pl.forEach(g=>g.scale.setScalar(.6+.7*m));
+  b.sens.material.color.setHex(i===0&&S.f.soilA?0xe03030:0xffd83a);b.l.set('Canteiro '+'AB'[i]+' · '+(i===0&&S.f.soilA?'ERRO':S.soil[i].toFixed(0)+'%'))});
+ drops.visible=S.drip>.1;if(drops.visible)for(let j=0;j<em.length*3;j++){const ph=(t*1.6+(j%3)/3)%1;dp.set([em[(j/3)|0],.8-ph*.3,0],j*3)}dg.attributes.position.needsUpdate=true;
+ lTank.set(`Reservatório ${S.water.toFixed(1)}/${S.cap} L`);lPump.set('Bomba '+(S.pump?'LIGADA':'OFF'));lFlow.set('Fluxo '+S.flow.toFixed(1)+' L/min');lSol.set('Solar '+S.gen.toFixed(0)+' W');lBat.set('Bateria '+S.bat.toFixed(0)+'%');
+ [!S.alerts.length&&S.mode!=='ECONOMIA'?0x2fc65e:0x333,S.mode==='ECONOMIA'||S.mode==='RECUPERAÇÃO'?0xe5b52b:0x333,S.alerts.length?0xe04b4b:0x333,S.pump?0x2f7fd0:0x333].forEach((c,i)=>leds[i].material.color.setHex(c));
+ ot.needsUpdate=true;
+ cam.position.set(tg.x+rad*Math.sin(ph)*Math.sin(th),tg.y+rad*Math.cos(ph),tg.z+rad*Math.sin(ph)*Math.cos(th));cam.lookAt(tg);R.render(sc,cam)}
+an();GL=true;
+})()}catch(e){console.error(e);$('scene').style.display='block'}
+</script></body></html>
